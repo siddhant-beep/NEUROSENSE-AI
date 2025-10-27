@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroSense AI - Analysis</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="landing"></div>
+    <div id="analysis" class="analysis-view">
+        <!-- Your existing analysis interface -->
+        <div class="figma-container">
+            <aside class="sidebar">
+                <div class="profile-section">
+                    <img src="https://via.placeholder.com/80" alt="Profile" class="profile-avatar">
+                    <h3>NeuroSense AI</h3>
+                    <p>Neurological Analysis System</p>
+                </div>
+                <ul class="nav-menu">
+                    <li class="nav-item active">Dashboard</li>
+                    <li class="nav-item">Text Analysis</li>
+                    <li class="nav-item">Speech Analysis</li>
+                    <li class="nav-item">Reports</li>
+                    <li class="nav-item">Settings</li>
+                </ul>
+            </aside>
+
+            <main class="main-content">
+                <h1>Neurological Analysis Dashboard</h1>
+                
+                <div class="card-grid">
+                    <div class="stat-card">
+                        <h3>Typing Speed</h3>
+                        <div id="speed" class="stat-value">0 WPM</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Consistency</h3>
+                        <div id="consistency" class="stat-value">0%</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Analysis Score</h3>
+                        <div id="score" class="stat-value">0</div>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <button id="analyzeText" class="button">Analyze Text</button>
+                    <button id="startSpeech" class="button">Start Speech Analysis</button>
+                    <button id="stopSpeech" class="button" style="display: none;">Stop Recording</button>
+                </div>
+
+                <textarea id="typebox" 
+                    placeholder="Start typing or speaking to begin neurological analysis..." 
+                    rows="5"></textarea>
+
+                <div id="result" class="analysis-results"></div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // Load landing page content
+        fetch('landing.html')
+            .then(response => response.text())
+            .then(html => {
+                document.getElementById('landing').innerHTML = html;
+                // Add event listener after content is loaded
+                document.getElementById('startAnalysis')?.addEventListener('click', startAnalysis);
+            });
+
+        function startAnalysis() {
+            const landing = document.getElementById('landing');
+            const analysis = document.getElementById('analysis');
+            
+            landing.classList.add('hiding');
+            setTimeout(() => {
+                landing.style.display = 'none';
+                analysis.style.display = 'block';
+                setTimeout(() => analysis.classList.add('showing'), 50);
+            }, 500);
+        }
+
+        const API_URL = 'http://localhost:29356/api';
+        let lastKeyTime = Date.now();
+        let typingData = [];
+        let startTime = null;
+        let isAnalyzing = false;
+
+        document.getElementById("typebox").addEventListener("keydown", (event) => {
+            const currentTime = Date.now();
+            if (!startTime) startTime = currentTime;
+            
+            const delay = currentTime - lastKeyTime;
+            
+            typingData.push({
+                key: event.key,
+                timestamp: currentTime,
+                delay: delay,
+                elapsedTime: currentTime - startTime
+            });
+
+            lastKeyTime = currentTime;
+
+            // Calculate real-time metrics
+            updateMetrics();
+
+            if (typingData.length >= 20) {
+                sendTypingData(typingData);
+                startTime = currentTime;
+                typingData = [];
+            }
+        });
+
+        function updateMetrics() {
+            if (typingData.length < 2) return;
+            
+            // Calculate WPM
+            const timeElapsed = (Date.now() - startTime) / 1000 / 60; // in minutes
+            const wordsTyped = typingData.length / 5; // assume average word length of 5
+            const wpm = Math.round(wordsTyped / timeElapsed);
+            
+            // Calculate consistency
+            const delays = typingData.map(d => d.delay).filter(d => d > 0);
+            const avgDelay = delays.reduce((a, b) => a + b, 0) / delays.length;
+            const variance = delays.reduce((a, b) => a + Math.pow(b - avgDelay, 2), 0) / delays.length;
+            const consistency = Math.max(0, 100 - Math.sqrt(variance) / 10);
+            
+            document.getElementById("speed").textContent = `${wpm} WPM`;
+            document.getElementById("consistency").textContent = `${Math.round(consistency)}%`;
+        }
+
+        async function sendTypingData(data) {
+            if (isAnalyzing) return;
+            
+            const resultElement = document.getElementById("result");
+            try {
+                isAnalyzing = true;
+                resultElement.classList.add('loading');
+                
+                const response = await fetch(`${API_URL}/analyze`, {
+                    method: "POST",
+                    headers: { 
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    body: JSON.stringify({ typingData: data })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Analysis failed: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                resultElement.innerText = JSON.stringify(result, null, 2);
+                showStatus('Analysis completed successfully');
+                
+            } catch (error) {
+                console.error("Analysis Error:", error);
+                showStatus(error.message, 'error');
+            } finally {
+                isAnalyzing = false;
+                resultElement.classList.remove('loading');
+            }
+        }
+
+        function showStatus(message, type = 'success') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+            
+            setTimeout(() => {
+                status.style.opacity = '0';
+                setTimeout(() => {
+                    status.style.display = 'none';
+                    status.style.opacity = '1';
+                }, 300);
+            }, 2700);
+        }
+
+        // Speech Recognition Setup
+        let recognition = null;
+        let isRecording = false;
+        let lastSpeechTimestamp = Date.now();
+        let speechData = [];
+
+        function initSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window)) {
+                showStatus('Speech recognition not supported in this browser', 'error');
+                return;
+            }
+
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US'; // Add language specification
+
+            recognition.onstart = () => {
+                isRecording = true;
+                document.getElementById('startSpeech').classList.add('recording');
+                document.getElementById('stopSpeech').style.display = 'block';
+                document.getElementById('speechStatus').textContent = 'Listening...';
+                console.log('Speech recognition started'); // Debug log
+            };
+
+            recognition.onresult = (event) => {
+                const current = Date.now();
+                const delay = current - lastSpeechTimestamp;
+                
+                // Log each recognition result
+                console.log('Speech recognized:', event.results);
+                
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    const confidence = event.results[i][0].confidence;
+                    const isFinal = event.results[i].isFinal;
+
+                    // Add visual feedback
+                    document.getElementById('result').innerHTML += `
+                        <div class="speech-entry ${isFinal ? 'final' : 'interim'}">
+                            <strong>Text:</strong> ${transcript}<br>
+                            <strong>Confidence:</strong> ${Math.round(confidence * 100)}%<br>
+                            <strong>Delay:</strong> ${delay}ms
+                        </div>
+                    `;
+
+                    // Store speech data
+                    speechData.push({
+                        type: 'speech',
+                        text: transcript,
+                        confidence: confidence,
+                        timestamp: current,
+                        delay: delay,
+                        isFinal: isFinal
+                    });
+
+                    // If we detect a significant pause
+                    if (delay > 1500) {
+                        speechData.push({
+                            type: 'hesitation',
+                            duration: delay,
+                            timestamp: current
+                        });
+                        showStatus(`Detected pause: ${Math.round(delay/1000)}s`, 'info');
+                    }
+
+                    // Send data for analysis when we have enough samples
+                    if (speechData.length >= 5 && isFinal) {
+                        sendAnalysisData({
+                            type: 'speech',
+                            data: speechData
+                        });
+                        speechData = []; // Reset after sending
+                    }
+                }
+
+                lastSpeechTimestamp = current;
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                showStatus(`Speech recognition error: ${event.error}`, 'error');
+            };
+
+            recognition.onend = () => {
+                isRecording = false;
+                document.getElementById('startSpeech').classList.remove('recording');
+                document.getElementById('stopSpeech').style.display = 'none';
+                document.getElementById('speechStatus').textContent = '';
+                
+                // Send any remaining data
+                if (speechData.length > 0) {
+                    sendAnalysisData({
+                        type: 'speech',
+                        data: speechData
+                    });
+                    speechData = [];
+                }
+            };
+        }
+
+        document.getElementById('startSpeech').addEventListener('click', () => {
+            if (!recognition) initSpeechRecognition();
+            if (!isRecording) {
+                recognition.start();
+            }
+        });
+
+        document.getElementById('stopSpeech').addEventListener('click', () => {
+            if (recognition && isRecording) {
+                recognition.stop();
+            }
+        });
+
+        // Add this after the existing event listeners
+        document.getElementById("analyzeText").addEventListener("click", () => {
+            const text = document.getElementById("typebox").value;
+            if (!text.trim()) {
+                showStatus("Please enter some text to analyze", "error");
+                return;
+            }
+
+            const data = {
+                type: 'text',
+                content: text,
+                timestamp: Date.now()
+            };
+
+            const analysis = analyzeText(text);
+            sendAnalysisData({
+                type: 'text',
+                data: data,
+                analysis: analysis
+            });
+        });
+
+        // Modify the sendAnalysisData function
+        async function sendAnalysisData(data) {
+            if (isAnalyzing) return;
+            
+            const resultElement = document.getElementById("result");
+            try {
+                isAnalyzing = true;
+                resultElement.classList.add('loading');
+                
+                // Ensure we have the required data structure
+                const analysisData = {
+                    type: data.type,
+                    content: data.type === 'text' ? data.data.content : 
+                            data.type === 'speech' ? data.data.map(d => d.text).join(' ') : '',
+                    typingData: data.type === 'text' ? typingData : [],
+                    timestamp: Date.now()
+                };
+
+                // Get text analysis
+                const textAnalysis = analyzeText(analysisData.content);
+                
+                // Get neurological analysis
+                const neurologicalAssessment = analyzeNeurologicalPatterns(analysisData);
+                
+                // Display results
+                displayAnalysisResults(null, textAnalysis);
+                displayNeurologicalAssessment(neurologicalAssessment);
+                
+                showStatus('Analysis completed successfully');
+                
+            } catch (error) {
+                console.error("Analysis Error:", error);
+                showStatus(error.message, 'error');
+            } finally {
+                isAnalyzing = false;
+                resultElement.classList.remove('loading');
+            }
+        }
+
+        function analyzeText(text) {
+            // Basic text analysis
+            const words = text.toLowerCase().trim().split(/\s+/);
+            const wordCount = words.length;
+            const uniqueWords = new Set(words).size;
+            const avgWordLength = words.reduce((sum, word) => sum + word.length, 0) / wordCount;
+            
+            // Sentiment indicators (basic)
+            const positiveWords = ['good', 'great', 'happy', 'excellent', 'wonderful', 'best', 'love'];
+            const negativeWords = ['bad', 'worst', 'hate', 'awful', 'terrible', 'poor', 'wrong'];
+            
+            const sentiment = words.reduce((score, word) => {
+                if (positiveWords.includes(word)) return score + 1;
+                if (negativeWords.includes(word)) return score - 1;
+                return score;
+            }, 0);
+
+            // Complexity indicators
+            const longWords = words.filter(word => word.length > 6).length;
+            const complexityScore = (longWords / wordCount) * 100;
+
+            return {
+                analysis: {
+                    wordCount,
+                    uniqueWords,
+                    vocabularyDiversity: (uniqueWords / wordCount) * 100,
+                    avgWordLength,
+                    complexityScore,
+                    sentiment: sentiment > 0 ? 'Positive' : sentiment < 0 ? 'Negative' : 'Neutral',
+                    sentimentScore: sentiment
+                },
+                details: {
+                    longWords: words.filter(word => word.length > 6),
+                    repeatedWords: findRepeatedWords(words),
+                    hesitationCount: countHesitations(text)
+                }
+            };
+        }
+
+        function findRepeatedWords(words) {
+            const wordFreq = {};
+            words.forEach(word => {
+                if (word.length > 2) { // Ignore short words
+                    wordFreq[word] = (wordFreq[word] || 0) + 1;
+                }
+            });
+            return Object.entries(wordFreq)
+                .filter(([_, count]) => count > 1)
+                .map(([word, count]) => ({ word, count }));
+        }
+
+        function countHesitations(text) {
+            return (text.match(/\.{3}|[,\-…]/g) || []).length;
+        }
+
+        // Add navigation handling
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+            });
+        });
+
+        // Update the displayAnalysisResults function to work with new UI
+        function displayAnalysisResults(serverResult, clientAnalysis) {
+            const resultElement = document.getElementById("result");
+            document.getElementById("score").textContent = 
+                Math.round(clientAnalysis.analysis.complexityScore);
+            
+            const analysisHTML = `
+                <div class="analysis-results">
+                    <h3>Text Analysis</h3>
+                    <div class="metric-group">
+                        <div class="metric">
+                            <label>Word Count:</label>
+                            <span>${clientAnalysis.analysis.wordCount}</span>
+                        </div>
+                        <div class="metric">
+                            <label>Vocabulary Diversity:</label>
+                            <span>${clientAnalysis.analysis.vocabularyDiversity.toFixed(1)}%</span>
+                        </div>
+                        <div class="metric">
+                            <label>Sentiment:</label>
+                            <span class="sentiment-${clientAnalysis.analysis.sentiment.toLowerCase()}">
+                                ${clientAnalysis.analysis.sentiment}
+                            </span>
+                        </div>
+                        <div class="metric">
+                            <label>Complexity Score:</label>
+                            <span>${clientAnalysis.analysis.complexityScore.toFixed(1)}</span>
+                        </div>
+                    </div>
+                    
+                    <h4>Repeated Words</h4>
+                    <div class="word-patterns">
+                        ${clientAnalysis.details.repeatedWords
+                            .map(({word, count}) => 
+                                `<span class="word-tag">${word} (${count}x)</span>`)
+                            .join('')}
+                    </div>
+                </div>
+            `;
+            
+            resultElement.innerHTML = analysisHTML;
+        }
+
+        function analyzeNeurologicalPatterns(data) {
+            const patterns = {
+                dyslexia: {
+                    indicators: 0,
+                    symptoms: []
+                },
+                anxiety: {
+                    indicators: 0,
+                    symptoms: []
+                },
+                adhd: {
+                    indicators: 0,
+                    symptoms: []
+                },
+                depression: {
+                    indicators: 0,
+                    symptoms: []
+                }
+            };
+
+            // Analyze typing/speech patterns
+            const typingAnalysis = analyzeTypingPatterns(data);
+            const textAnalysis = analyzeTextContent(data.content);
+            const hesitationAnalysis = analyzeHesitations(data);
+
+            // Combine analyses for final assessment
+            return generateNeurologicalAssessment(typingAnalysis, textAnalysis, hesitationAnalysis);
+        }
+
+        function analyzeTypingPatterns(data) {
+            const patterns = {
+                averageDelay: 0,
+                inconsistencyRate: 0,
+                errorRate: 0,
+                correctionRate: 0
+            };
+
+            // Check if we have typing data from either source
+            const typingData = data.typingData || (data.data?.type === 'text' ? data.data : []);
+            
+            if (typingData && typingData.length > 0) {
+                const delays = typingData
+                    .filter(d => typeof d.delay === 'number')
+                    .map(d => d.delay)
+                    .filter(d => d > 0);
+
+                if (delays.length > 0) {
+                    patterns.averageDelay = delays.reduce((a, b) => a + b, 0) / delays.length;
+                    patterns.inconsistencyRate = calculateInconsistencyRate(delays);
+                }
+
+                if (typingData.length > 0) {
+                    patterns.errorRate = calculateErrorRate(typingData);
+                    patterns.correctionRate = calculateCorrectionRate(typingData);
+                }
+            }
+
+            return patterns;
+        }
+
+        // Add this new function for correction rate calculation
+        function calculateCorrectionRate(typingData) {
+            if (!typingData || typingData.length === 0) return 0;
+            const corrections = typingData.filter(d => 
+                d.key === 'Backspace' || d.key === 'Delete'
+            ).length;
+            return corrections / typingData.length;
+        }
+
+        function analyzeTextContent(text) {
+            return {
+                repetitions: findWordRepetitions(text),
+                sentenceStructure: analyzeSentenceStructure(text),
+                emotionalIndicators: findEmotionalPatterns(text),
+                coherence: assessCoherence(text)
+            };
+        }
+
+        function generateNeurologicalAssessment(typing, text, hesitation) {
+            const assessment = {
+                possibleConditions: [],
+                confidence: 0,
+                recommendations: [],
+                details: {}
+            };
+
+            // Dyslexia Indicators
+            if (typing.errorRate > 0.2 || text.repetitions.high) {
+                assessment.possibleConditions.push({
+                    condition: 'Dyslexia',
+                    confidence: calculateConfidence('dyslexia', typing, text),
+                    indicators: [
+                        'High typing error rate',
+                        'Word repetitions',
+                        'Inconsistent spelling patterns'
+                    ],
+                    recommendations: [
+                        'Consider text-to-speech tools',
+                        'Use dyslexia-friendly fonts',
+                        'Practice structured writing exercises'
+                    ]
+                });
+            }
+
+            // Anxiety Indicators
+            if (typing.inconsistencyRate > 0.3 || hesitation.highPauseRate) {
+                assessment.possibleConditions.push({
+                    condition: 'Anxiety',
+                    confidence: calculateConfidence('anxiety', typing, text),
+                    indicators: [
+                        'Irregular typing patterns',
+                        'Frequent hesitations',
+                        'Self-correcting behavior'
+                    ],
+                    recommendations: [
+                        'Consider mindfulness techniques',
+                        'Practice breathing exercises while writing',
+                        'Use writing prompts for structured practice'
+                    ]
+                });
+            }
+
+            // ADHD Indicators
+            if (text.coherence < 0.6 || typing.inconsistencyRate > 0.4) {
+                assessment.possibleConditions.push({
+                    condition: 'ADHD',
+                    confidence: calculateConfidence('adhd', typing, text),
+                    indicators: [
+                        'Scattered thought patterns',
+                        'Inconsistent focus',
+                        'Topic switching'
+                    ],
+                    recommendations: [
+                        'Use writing organization tools',
+                        'Break writing into smaller tasks',
+                        'Implement pomodoro technique'
+                    ]
+                });
+            }
+
+            return assessment;
+        }
+
+        function displayNeurologicalAssessment(assessment) {
+            const resultElement = document.getElementById("result");
+            
+            const assessmentHTML = `
+                <div class="analysis-results neurological">
+                    <h3>Neurological Pattern Analysis</h3>
+                    <div class="warning-notice">
+                        <strong>Important:</strong> This is a preliminary analysis and should not replace professional medical evaluation.
+                    </div>
+                    ${assessment.possibleConditions.length > 0 ? `
+                        <div class="detected-patterns">
+                            <h4>Detected Patterns</h4>
+                            ${assessment.possibleConditions.map(condition => `
+                                <div class="condition-card ${condition.confidence > 0.6 ? 'high-confidence' : ''}">
+                                    <div class="condition-header">
+                                        <h4>${condition.condition}</h4>
+                                        <div class="confidence-meter">
+                                            <div class="confidence-label">Confidence Level:</div>
+                                            <div class="meter">
+                                                <div class="meter-fill" style="width: ${condition.confidence * 100}%"></div>
+                                            </div>
+                                            <div class="confidence-value">${Math.round(condition.confidence * 100)}%</div>
+                                        </div>
+                                    </div>
+                                    <div class="indicators">
+                                        <h5>Observed Indicators:</h5>
+                                        <ul>
+                                            ${condition.indicators.map(i => `<li>${i}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                    <div class="recommendations">
+                                        <h5>Suggested Actions:</h5>
+                                        <ul>
+                                            ${condition.recommendations.map(r => `<li>${r}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="no-patterns">
+                            <p>No significant patterns detected that suggest neurological concerns.</p>
+                        </div>
+                    `}
+                </div>
+            `;
+            
+            resultElement.innerHTML += assessmentHTML;
+        }
+
+        function calculateInconsistencyRate(delays) {
+            if (!delays.length) return 0;
+            const mean = delays.reduce((a, b) => a + b, 0) / delays.length;
+            const variance = delays.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / delays.length;
+            return Math.min(1, Math.sqrt(variance) / mean);
+        }
+
+        function calculateErrorRate(typingData) {
+            const backspaces = typingData.filter(d => d.key === 'Backspace').length;
+            return backspaces / typingData.length;
+        }
+
+        function calculateConfidence(condition, typing, text) {
+            let score = 0;
+            
+            switch(condition) {
+                case 'dyslexia':
+                    score += typing.errorRate * 0.4;
+                    score += (text.repetitions?.length || 0) * 0.3;
+                    score += (1 - (text.coherence || 0)) * 0.3;
+                    break;
+                    
+                case 'anxiety':
+                    score += typing.inconsistencyRate * 0.5;
+                    score += (text.emotionalIndicators?.negative || 0) * 0.3;
+                    score += (typing.correctionRate || 0) * 0.2;
+                    break;
+                    
+                case 'adhd':
+                    score += typing.inconsistencyRate * 0.3;
+                    score += (1 - (text.coherence || 0)) * 0.4;
+                    score += (text.topicSwitches || 0) * 0.3;
+                    break;
+            }
+            
+            return Math.min(1, Math.max(0, score));
+        }
+
+        function findWordRepetitions(text) {
+            const sentences = text.split(/[.!?]+/).filter(Boolean);
+            const words = text.toLowerCase().split(/\s+/);
+            const repetitions = {};
+            
+            words.forEach(word => {
+                if (word.length > 2) {
+                    repetitions[word] = (repetitions[word] || 0) + 1;
+                }
+            });
+            
+            return {
+                high: Object.values(repetitions).some(count => count > 3),
+                patterns: Object.entries(repetitions)
+                    .filter(([_, count]) => count > 1)
+                    .map(([word, count]) => ({ word, count }))
+            };
+        }
+
+        function analyzeSentenceStructure(text) {
+            const sentences = text.split(/[.!?]+/).filter(Boolean);
+            return {
+                complexity: sentences.reduce((acc, sentence) => {
+                    const words = sentence.trim().split(/\s+/);
+                    return acc + (words.length > 20 ? 1 : 0);
+                }, 0) / sentences.length,
+                coherence: assessCoherence(sentences)
+            };
+        }
+
+        function findEmotionalPatterns(text) {
+            const anxietyWords = ['worried', 'nervous', 'anxiety', 'stress', 'panic', 'fear'];
+            const depressionWords = ['sad', 'hopeless', 'tired', 'alone', 'empty', 'worthless'];
+            const words = text.toLowerCase().split(/\s+/);
+            
+            return {
+                anxiety: words.filter(w => anxietyWords.includes(w)).length,
+                depression: words.filter(w => depressionWords.includes(w)).length,
+                negative: words.filter(w => anxietyWords.includes(w) || depressionWords.includes(w)).length
+            };
+        }
+
+        function assessCoherence(text) {
+            const sentences = Array.isArray(text) ? text : text.split(/[.!?]+/).filter(Boolean);
+            if (sentences.length < 2) return 1;
+            
+            let coherenceScore = 0;
+            for (let i = 1; i < sentences.length; i++) {
+                const prevWords = new Set(sentences[i-1].toLowerCase().split(/\s+/));
+                const currentWords = new Set(sentences[i].toLowerCase().split(/\s+/));
+                const commonWords = [...prevWords].filter(word => currentWords.has(word)).length;
+                coherenceScore += commonWords / Math.max(prevWords.size, currentWords.size);
+            }
+            
+            return coherenceScore / (sentences.length - 1);
+        }
+
+        function analyzeHesitations(data) {
+            let hesitations = [];
+            let highPauseRate = false;
+            
+            if (data.type === 'text') {
+                const delays = data.typingData.map(d => d.delay).filter(d => d > 1000);
+                highPauseRate = delays.length / data.typingData.length > 0.2;
+                hesitations = delays.map(delay => ({
+                    duration: delay,
+                    timestamp: Date.now()
+                }));
+            } else if (data.type === 'speech') {
+                hesitations = data.data.filter(d => d.type === 'hesitation');
+                highPauseRate = hesitations.length / data.data.length > 0.15;
+            }
+            
+            return {
+                count: hesitations.length,
+                highPauseRate,
+                patterns: hesitations
+            };
+        }
+    </script>
+</body>
+</html>

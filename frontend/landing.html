@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroSense AI</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Landing page content -->
+    <div id="landing" class="landing-view">
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+                <span class="logo-text">NeuroSense AI</span>
+            </div>
+            <div class="status">Neural Engine v2.1 Active</div>
+        </header>
+
+        <div class="warning">
+            <div class="warning-content">
+                <span class="warning-icon">⚠️</span>
+                <span>Neural pathways change every 90 seconds of input</span>
+            </div>
+        </div>
+
+        <main class="main-content">
+            <div class="brain-container">
+                <div class="brain-circle">
+                    <div class="brain-icon"></div>
+                    <div class="floating-dot dot-1"></div>
+                    <div class="floating-dot dot-2"></div>
+                </div>
+            </div>
+
+            <h1 class="main-title">NeuroSense AI</h1>
+            <h2 class="subtitle">Decode Your Mind's Hidden Language</h2>
+            <p class="description">
+                Advanced neural pattern recognition reveals cognitive fingerprints invisible to the conscious 
+                mind. Discover what your typing rhythm and voice inflections secretly reveal about your mental 
+                state.
+            </p>
+
+            <button id="startAnalysis" class="cta-button">Begin Neural Analysis</button>
+        </main>
+    </div>
+
+    <!-- Analysis Interface (initially hidden) -->
+    <div id="analysis" class="analysis-view" style="display: none;">
+        <!-- Your existing analysis interface -->
+    </div>
+
+    <script>
+        document.getElementById('startAnalysis').addEventListener('click', () => {
+            document.getElementById('landing').style.display = 'none';
+            document.getElementById('analysis').style.display = 'block';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# --- SYSTEM & CLOUD ---
+AppData/
+*/AppData/
+OneDrive/
+desktop.ini
+*.lnk
+*.tmp
+*.log
+*.cache
+*.bak
+*.DS_Store
+Thumbs.db
+
+# --- ENVIRONMENT FILES ---
+.env
+.env.local
+.venv/
+venv/
+__pycache__/
+
+# --- NODE/REACT FRONTEND ---
+node_modules/
+dist/
+build/
+coverage/
+
+# --- PYTHON BACKEND ---
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.DS_Store
+
+# --- VS CODE & EDITOR FILES ---
+.vscode/
+.idea/
+*.code-workspace
+
+# --- MODEL & DATA FILES ---
+*.h5
+*.pkl
+*.pt
+*.onnx
+*.csv
+*.json
+*.zip
+*.tar.gz
